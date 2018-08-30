@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+KUVVA_BASE_URL="https://www.kuvva.com"
+KUVVA_SHARE_URL_PREFIX="${KUVVA_BASE_URL}/s/"
+
+SHARE_URL="${1}"
+DOWNLOAD_PATH="${2:-${PWD}/Downloads}"
+
+declare -A COLORS=(
+  ["bold"]="$(tput bold)"
+  ["notice"]=""
+  ["info"]="$(tput setaf 2)"
+  ["warn"]="$(tput setaf 3)"
+  ["error"]="$(tput setaf 1)"
+  ["reset"]="$(tput sgr0)"
+)
+
+declare -a RESOLUTIONS=("2880x1800" "1920x1080" "1600x900" "1360x768" "1280×720" "1920x1200" "1440x900" "1280x800")
+
+
+set -euo pipefail
+
+
+usage() {
+  echo "Usage: $(basename "${0}") <SHARE_URL> [DOWNLOAD_PATH]"
+}
+
+
+missing_dependency() {
+  log error "Please, install ${1}"
+  exit 127
+}
+
+
+log() {
+  local level="${1}"
+  local message="${2}"
+
+  printf "${COLORS[$level]}%s${COLORS[reset]}\\n" "${message}"
+}
+
+
+download_image() {
+  local thumbnail="${1}"
+  local -i resolution_idx="${2}"
+
+  local resolution="${RESOLUTIONS[$resolution_idx]}"
+  local fullsize="${thumbnail//\/[0-9]*x[0-9]*_//${resolution}_}"
+
+  log notice "Saving ${fullsize}"
+  curl --progress-bar -O --fail "${fullsize}" || {
+    log warn "Could not download image with resolution ${COLORS[bold]}${resolution}"
+
+    resolution_idx=$resolution_idx+1
+    if [[ $resolution_idx < ${#RESOLUTIONS[@]} ]]; then
+      log warn "Trying next resolution"
+      download_image "${thumbnail}" "${resolution_idx}"
+    else
+      log error "Failed to download image"
+    fi
+  }
+}
+
+
+download_page() {
+  local url="${1}"
+  local content
+  local next_page_url
+
+  echo ""
+  log info "Fetching images from ${url}"
+
+  content="$(curl -s --insecure --fail "${url}")"
+  for thumbnail in $(echo "${content}" | pup '.thumb-grid li > a[href] > img[src] attr{src}'); do
+    download_image "${thumbnail}" 0
+  done
+
+  next_page_url="$(echo "${content}" | pup '.pagination > a.next attr{href}')"
+  [[ -n "${next_page_url}" ]] && download_page "${KUVVA_BASE_URL}${next_page_url}"
+}
+
+
+if [[ -z "${SHARE_URL}" ]]; then
+  log error "Invalid arguments"
+  usage
+  exit 1
+fi
+
+if ! [[ "${SHARE_URL}" =~ ^${KUVVA_SHARE_URL_PREFIX} ]]; then
+  log error "SHARE_URL should start with ${KUVVA_SHARE_URL_PREFIX}"
+  exit 1
+fi
+
+hash curl >/dev/null 2>&1 || missing_dependency "curl"
+hash pup >/dev/null 2>&1 || missing_dependency "pup (https://github.com/ericchiang/pup)"
+
+
+log info "Downloading images to ${COLORS[bold]}${DOWNLOAD_PATH}"
+mkdir -p "${DOWNLOAD_PATH}" && cd "${DOWNLOAD_PATH}"
+
+download_page "${SHARE_URL}"
+
+cd -
