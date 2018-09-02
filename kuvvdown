@@ -3,6 +3,9 @@
 KUVVA_BASE_URL="https://www.kuvva.com"
 KUVVA_SHARE_URL_PREFIX="${KUVVA_BASE_URL}/s/"
 
+KUVVA_CDN_URL="https://dvif77labeimb.cloudfront.net"
+KUVVA_DOWNLOAD_URL="https://rrkuvvawp.s3.amazonaws.com"
+
 SHARE_URL="${1}"
 DOWNLOAD_PATH="${2:-${PWD}/Downloads}"
 
@@ -15,7 +18,7 @@ declare -A COLORS=(
   ["reset"]="$(tput sgr0)"
 )
 
-declare -a RESOLUTIONS=("2880x1800" "1920x1080" "1600x900" "1360x768" "1280×720" "1920x1200" "1440x900" "1280x800")
+declare -a RESOLUTIONS=("2880x1800" "1920x1080" "1600x900" "1360x768" "1280×720" "1920x1200" "1440x900" "1280x800" "ltn")
 
 
 set -euo pipefail
@@ -45,18 +48,23 @@ download_image() {
   local -i resolution_idx="${2}"
 
   local resolution="${RESOLUTIONS[$resolution_idx]}"
-  local fullsize="${thumbnail//\/[0-9]*x[0-9]*_//${resolution}_}"
+  local fullsize
 
-  log notice "Saving ${fullsize}"
+  if [[ "${resolution}" == "ltn" ]]; then
+    fullsize="${thumbnail//${KUVVA_CDN_URL}\/[0-9]*x[0-9]*_/${KUVVA_DOWNLOAD_URL}/ltn_}"
+    fullsize="${fullsize//[0-9].jpeg/.jpeg}"
+  else
+    fullsize="${thumbnail//\/[0-9]*x[0-9]*_//${resolution}_}"
+  fi
+
+  log notice "Saving ${COLORS[bold]}${COLORS[info]}${resolution}${COLORS[reset]} image ${fullsize}"
   curl --progress-bar -O --fail "${fullsize}" || {
-    log warn "Could not download image with resolution ${COLORS[bold]}${resolution}"
-
     resolution_idx=$resolution_idx+1
     if [[ $resolution_idx < ${#RESOLUTIONS[@]} ]]; then
       log warn "Trying next resolution"
       download_image "${thumbnail}" "${resolution_idx}"
     else
-      log error "Failed to download image"
+      log error "Download failed"
     fi
   }
 }
